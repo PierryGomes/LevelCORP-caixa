@@ -407,8 +407,8 @@ async function loadAll(){
     if(prodR.data?.length) produtos = prodR.data;
     else { produtos=[...DEFAULT_PRODS]; await initProds(); }
  
-    if(custoR.data?.length) custos = custoR.data;
-    else { custos=[...DEFAULT_CUSTOS]; await initCustos(); }
+    custos = (custoR.data && custoR.data.length > 0) ? custoR.data : [];
+if(custos.length === 0){ custos=[...DEFAULT_CUSTOS]; await initCustos(); }
  
     if(iniR.data?.length) iniR.data.forEach(r=>estoqueIni[r.key]=r.quantidade);
     else { estoqueIni={...DEFAULT_EST}; await initIni(); }
@@ -437,6 +437,8 @@ async function initProds(){
   await sb.from('produtos').upsert(DEFAULT_PRODS);
 }
 async function initCustos(){
+  const {data: existing} = await sb.from('custos').select('*');
+  if(existing && existing.length > 0){ custos = existing; return; }
   for(const c of DEFAULT_CUSTOS) await sb.from('custos').insert(c);
   const {data}=await sb.from('custos').select('*').order('id',{ascending:true});
   if(data) custos=data;
