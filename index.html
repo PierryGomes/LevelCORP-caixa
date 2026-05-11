@@ -241,7 +241,16 @@ body{display:flex;justify-content:center;align-items:flex-start}
         <div id="itens-lista"></div>
         <button class="add-item-btn" onclick="addItemLinha()">+ Adicionar outro sabor</button>
       </div>
- 
+
+      <div class="f" style="margin-bottom:6px"><label>Promoção</label>
+  <select id="promo-status" onchange="aplicarPromocao()">
+    <option value="none">Sem promoção</option>
+    <option value="promo">🏷️ Aplicar promoção</option>
+  </select>
+</div>
+<div id="promo-aviso" style="display:none;font-size:11px;color:var(--warn);margin-bottom:6px;padding:6px 10px;background:rgba(224,154,32,0.10);border:1px solid rgba(224,154,32,0.25);border-radius:7px">
+  🏷️ Promoção aplicada: <span id="promo-desc">—</span>
+</div>
       <div class="f" style="margin-bottom:6px"><label>Pagamento</label>
         <select id="pag-status">
           <option value="unpaid">⏳ Pendente</option>
@@ -326,7 +335,23 @@ body{display:flex;justify-content:center;align-items:flex-start}
       <div style="margin-top:10px">
         <button class="btn sm ghost" onclick="saveIni()">💾 Salvar quantidades iniciais</button>
       </div>
- 
+
+      <div class="divider"></div>
+      <div class="slbl">Promoção
+        <button class="btn sm ghost" onclick="savePromo()">💾 Salvar</button>
+      </div>
+      <div class="cfg-prod">
+        <div class="f" style="margin-bottom:8px"><label>Descrição da promoção (ex: "Leva 2 paga 1")</label>
+          <input class="cfg-inp" id="promo-nome-cfg" type="text" placeholder="Ex: Compre 2 leve 1">
+        </div>
+        <div class="f" style="margin-bottom:8px"><label>Desconto fixo (R$) — deixe 0 se for % </label>
+          <input class="cfg-inp" id="promo-desc-r" type="number" step="0.50" value="0" placeholder="Ex: 4.00">
+        </div>
+        <div class="f"><label>Desconto em % — deixe 0 se for R$</label>
+          <input class="cfg-inp" id="promo-desc-pct" type="number" step="1" value="0" placeholder="Ex: 10">
+        </div>
+      </div>
+      
       <div class="divider"></div>
       <div style="font-size:10px;color:var(--text2);line-height:1.6">
         ⚠️ Após salvar produtos, recarregue a página para o formulário de pedidos atualizar.
@@ -526,7 +551,8 @@ async function addOrder(){
     if(prod.usa_pao&&(estoque.pao||0)<l.qty){showToast('⚠ Pão insuficiente!',true);return;}
   }
  
-  const total = linhasItens.reduce((s,l)=>s+(l.qty*(parseFloat(l.preco)||0)),0);
+  const totalBruto = linhasItens.reduce((s,l)=>s+(l.qty*(parseFloat(l.preco)||0)),0);
+const total = calcTotalComPromo(totalBruto);
   const itens_json = JSON.stringify(linhasItens.map(l=>({
     prodKey:l.prodKey,
     nome: produtos.find(p=>p.key===l.prodKey)?.nome||l.prodKey,
@@ -851,7 +877,55 @@ function simCalc(){
   el.style.color=lucro>=0?'var(--ok)':'var(--err)';
   document.getElementById('sr-margem').textContent=margem.toFixed(1)+'%';
 }
- 
+
+  /* ── PROMOÇÃO ── */
+let promocao = {nome:'', desconto_fixo:0, desconto_pct:0};
+
+async function loadPromo(){
+  const {data} = await sb.from('promocao').select('*').eq('id',1).single();
+  if(data){
+    promocao = data;
+    const el = document.getElementById('promo-nome-cfg');
+    if(el){
+      document.getElementById('promo-nome-cfg').value = data.nome || '';
+      document.getElementById('promo-desc-r').value = data.desconto_fixo || 0;
+      document.getElementById('promo-desc-pct').value = data.desconto_pct || 0;
+    }
+  }
+}
+
+async function savePromo(){
+  const nome = document.getElementById('promo-nome-cfg').value;
+  const fixo = parseFloat(document.getElementById('promo-desc-r').value) || 0;
+  const pct  = parseFloat(document.getElementById('promo-desc-pct').value) || 0;
+  try {
+    await sb.from('promocao').upsert({id:1, nome, desconto_fixo:fixo, desconto_pct:pct});
+    promocao = {nome, desconto_fixo:fixo, desconto_pct:pct};
+    showToast('✅ Promoção salva');
+  } catch(e){ showToast('Erro: '+e.message, true); }
+}
+
+function aplicarPromocao(){
+  const ativa = document.getElementById('promo-status').value === 'promo';
+  const aviso = document.getElementById('promo-aviso');
+  if(ativa && (promocao.desconto_fixo > 0 || promocao.desconto_pct > 0)){
+    const desc = promocao.desconto_fixo > 0
+      ? `${promocao.nome} — desconto de R$ ${parseFloat(promocao.desconto_fixo).toFixed(2).replace('.',',')}`
+      : `${promocao.nome} — desconto de ${promocao.desconto_pct}%`;
+    document.getElementById('promo-desc').textContent = desc;
+    aviso.style.display = 'block';
+  } else {
+    aviso.style.display = 'none';
+  }
+}
+
+function calcTotalComPromo(totalBruto){
+  if(document.getElementById('promo-status').value !== 'promo') return totalBruto;
+  if(promocao.desconto_fixo > 0) return Math.max(0, totalBruto - promocao.desconto_fixo);
+  if(promocao.desconto_pct  > 0) return Math.max(0, totalBruto * (1 - promocao.desconto_pct/100));
+  return totalBruto;
+}
+  
 /* ── EXPORT CSV ── */
 function exportCSV(){
   if(!orders.length){showToast('Nenhum pedido para exportar',true);return;}
@@ -879,7 +953,8 @@ function showTab(t,btn){
 loadAll().then(()=>{
   setupRealtime();
   initItens();
-});
+  loadPromo();
+});});
 </script>
 </body>
 </html>
